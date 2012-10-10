@@ -3,7 +3,6 @@
 # This will convolve each image with a series of gaussin with sigma 0.5,1,1.5,2,2.5,3 and do photometry.
 # IMP:  Keep ds9 open and Images4Photo.in (text file containg name of images) ready
 # This script will do same photometry of all the images in text file "Images4Photo.in" and it's convolved versions
-# All the images in the directory should be properly alligned
 # You can use the AlignCombineImagesV2.py to do the aligning job
 # After that you can do photometry of all images together.
 # Keep the following scripts also in the same directory before executing this python
@@ -523,7 +522,7 @@ def Cosmicrays_subrout(fileinp=None,fluxratio=6):
 def Createlist_subrout():
     """ Creates the Images4Photo.in containing the image name , filter, exposure time, threshold """
     # First creating a file with just the names of images to do photometry.
-    os.system("find . -iname '*.fits' > ImageNames.txt")
+    os.system("find . -maxdepth 2 -iname '*.fits' > ImageNames.txt")
     os.system("sort ImageNames.txt > ImageNames.txtT")   #Sorting the image names
     os.system("mv ImageNames.txtT ImageNames.txt")
     # Now opening each image header and creating Images4Photo.in with filter, exposure time, threshold , UT
@@ -545,13 +544,14 @@ def Createlist_subrout():
     #Use FILTID for fileterID 75 =R ; 76 = V ; 6 for I for HCT
     #For Mcneil reduce the V threshold to 4 using gawk later.
 
-def FlatCorrection_subrout():
+def FlatCorrection_subrout(FlatStatSection):
     """ Will first combine the flats by normalising (scale=mode) and then divide images with normalised flat """
     iraf.images(_doprint=0) 
     iraf.immatch(_doprint=0) 
     iraf.imutil(_doprint=0) 
     
     iraf.imcombine.unlearn()
+    
     try :
         directories=open(MotherDIR+'/directories','r')
     except IOError :  #Creating a text file containg the directories to visit if it doesn't already exist
@@ -561,11 +561,23 @@ def FlatCorrection_subrout():
         direc=direc.rstrip()
         iraf.cd(MotherDIR+'/'+direc)
         for imgDir in glob.glob('image*'):
-            if len(glob.glob(imgDir+'/*.fits')) > 0 : #images exists
-                iraf.cd(MotherDIR+'/'+direc+'/'+imgDir[5:]+'flat/') #going to the flat directory
-                os.system('ls *.fits > flatimgs')
+            if len(glob.glob(imgDir+'/zs*.fits')) > 0 : #images exists
+                flatdir=imgDir[5:]+'flat'
+                if len(glob.glob(flatdir+'/zs*.fits')) > 0 : # atleast more than 1 flat exists...
+                    os.system('ls '+flatdir+'/zs*.fits > '+flatdir+'/flatimgs')
+                    iraf.imcombine (input='@'+flatdir+'/flatimgs', output= flatdir+'/'+flatdir+".fits", combine="median", scale="mode", statsec=FlatStatSection)
+                    statout=iraf.imstatistics(flatdir+'/'+flatdir+".fits"+FlatStatSection,fields='mode',Stdout=1)
+                    mode=float(statout[1])
+                    iraf.imarith(operand1=flatdir+'/'+flatdir+".fits",op="/",operand2=mode,result=flatdir+'/'+"N"+flatdir+".fits")
+                    # Now dividing all the images with normalised flat..
+                    os.system('ls '+imgDir+'/zs*.fits > '+imgDir+'/imglist')
+                    os.system("sed 's:/:/n:g' "+imgDir+"/imglist > "+imgDir+"/Nimglist") #prefixing n to filenames
+                    iraf.imarith(operand1='@'+imgDir+'/imglist',op="/",operand2=flatdir+'/'+"N"+flatdir+".fits",result='@'+imgDir+'/Nimglist')
+                else : print("ALERT: No flats in "+direc+' '+flatdir+" for flat correction ")
+        print("Flat correction fo "+direc+" is over")
+    print("Flat fielding of all nights are over...")
+    iraf.cd(MotherDIR)                    
                 
-
 def BiasSubtract_subrout():
     """ Combine the biases in Bias directory of each night and subtract it from other images """
     iraf.noao(_doprint=0)     #Loading packages 
@@ -621,7 +633,7 @@ def Classify_Manually_subrout():
             FilterID=hdulist[0].header.get(FILTERHDR)
             
             hdulist.close()
-            print(img,Object,Comment,FilterID,Exptime)
+            print(direc,img,Object,Comment,FilterID,Exptime)
             print (" Please type d  to  reject ")
             print ("             z  for biasframe")
             print ("             fv for V flat ")
@@ -677,10 +689,11 @@ def OverscanTrimming_subrout():
     for direc in directories.readlines():
         direc=direc.rstrip()
         iraf.cd(MotherDIR+'/'+direc)        
-        os.system("find . -maxdepth 1 -size +7M -name \*.fits | sort > rawimgs")
+        os.system("find . -maxdepth 1 -size +7M -name \*.fits  -printf '%P\n' | sort > rawimgs")
         iraf.colbias(input='@rawimgs',output='t//@rawimgs',interactive='no')
         os.system("xargs -a rawimgs rm ")  #deleting Raw images
         os.system("sed -i -n 's/^/t/p' rawimgs")  # prefixing "t" to list
+        print("Overscan subtraction and Trimming of "+direc+" over.")
     print(" Overscan subtraction and Trimming of all photometry images are over...")
     iraf.cd(MotherDIR)
 
@@ -767,7 +780,7 @@ for task in todo :
     elif task == "3" :
         BiasSubtract_subrout()
     elif task == "4" :
-        FlatCorrection_subrout()
+        FlatCorrection_subrout('[60:1780,60:1950]')
 
     elif task == "5" :
         Createlist_subrout()
