@@ -545,6 +545,145 @@ def Createlist_subrout():
     #Use FILTID for fileterID 75 =R ; 76 = V ; 6 for I for HCT
     #For Mcneil reduce the V threshold to 4 using gawk later.
 
+def FlatCorrection_subrout():
+    """ Will first combine the flats by normalising (scale=mode) and then divide images with normalised flat """
+    iraf.images(_doprint=0) 
+    iraf.immatch(_doprint=0) 
+    iraf.imutil(_doprint=0) 
+    
+    iraf.imcombine.unlearn()
+    try :
+        directories=open(MotherDIR+'/directories','r')
+    except IOError :  #Creating a text file containg the directories to visit if it doesn't already exist
+        os.system('find . -type d -maxdepth 1 -mindepth 1 | sort > directories ')
+        directories=open(MotherDIR+'/directories','r')
+    for direc in directories.readlines():
+        direc=direc.rstrip()
+        iraf.cd(MotherDIR+'/'+direc)
+        for imgDir in glob.glob('image*'):
+            if len(glob.glob(imgDir+'/*.fits')) > 0 : #images exists
+                iraf.cd(MotherDIR+'/'+direc+'/'+imgDir[5:]+'flat/') #going to the flat directory
+                os.system('ls *.fits > flatimgs')
+                
+
+def BiasSubtract_subrout():
+    """ Combine the biases in Bias directory of each night and subtract it from other images """
+    iraf.noao(_doprint=0)     #Loading packages 
+    iraf.imred(_doprint=0)
+    iraf.ccdred(_doprint=0)
+
+    iraf.zerocombine.unlearn()   #Setting everything to default
+    
+    try :
+        directories=open(MotherDIR+'/directories','r')
+    except IOError :  #Creating a text file containg the directories to visit if it doesn't already exist
+        os.system('find . -type d -maxdepth 1 -mindepth 1 | sort > directories ')
+        directories=open(MotherDIR+'/directories','r')
+    for direc in directories.readlines():
+        direc=direc.rstrip()
+        iraf.cd(MotherDIR+'/'+direc)        
+        iraf.cd("Bias/")
+        os.system("ls *.fits > zeroimgs")
+        iraf.zerocombine(input= "@zeroimgs", output="Zero.fits", combine="median", ccdtype="")
+
+        for i in ["Vflat","Rflat","Iflat","Bflat","Uflat","Haflat","imageU","imageV","imageR","imageI","imageB","imageHa"]:
+            iraf.cd(MotherDIR+'/'+direc)
+            iraf.cd(i)
+            os.system("ls *.fits > imgs")
+            iraf.imarith(operand1="@imgs",op="-",operand2="../Bias/Zero.fits",result="zs//@imgs")
+        print(direc+" Night's bias subtraciton over")
+        # Checking which all frames flats are missing
+        for i in glob.glob('image*'):
+            if len(glob.glob(i+'/*.fits')) > 0 and len(glob.glob(i[5:]+'flat/*.fits')) < 1 : # images exist in this filter but no flat
+                print ('Warning: No flat for images in '+direc+' '+i)
+    print("Bias subtraction of all nights over...")
+    iraf.cd(MotherDIR)
+
+def Classify_Manually_subrout():
+    """ This will display one image after other, and based on user input classify images to directroies """
+    try :
+        directories=open(MotherDIR+'/directories','r')
+    except IOError :  #Creating a text file containg the directories to visit if it doesn't already exist
+        os.system('find . -type d -maxdepth 1 -mindepth 1 | sort > directories ')
+        directories=open(MotherDIR+'/directories','r')
+    for direc in directories.readlines():
+        direc=direc.rstrip()
+        iraf.cd(MotherDIR+'/'+direc)        
+        for i in ["Rejects","Bias","Vflat","Rflat","Iflat","Bflat","Uflat","Haflat","imageU","imageV","imageR","imageI","imageB","imageHa"] : os.makedirs(i)
+        imglist=open("rawimgs",'r')
+        for img in imglist.readlines():
+            img=img.rstrip()
+            iraf.display(img,1)
+            hdulist=pyfits.open(img)
+            Comment=hdulist[0].header.get(COMMENTHDR)
+            Object=hdulist[0].header.get(OBJECTHDR)
+            Exptime=hdulist[0].header.get(EXPTIMEHDR)
+            FilterID=hdulist[0].header.get(FILTERHDR)
+            
+            hdulist.close()
+            print(img,Object,Comment,FilterID,Exptime)
+            print (" Please type d  to  reject ")
+            print ("             z  for biasframe")
+            print ("             fv for V flat ")
+            print ("             fb for B flat ")
+            print ("             fr for R flat ")
+            print ("             fi for I flat ")
+            print ("             fu for U flat ")
+            print ("             fh for Ha flat")	
+            print ("             v  for V image")
+            print ("             b  for B image")
+            print ("             r  for R image")
+            print ("             i  for I image")
+            print ("             u  for U image")
+            print ("             h  for Ha image")
+            verdict=""
+            verdict=raw_input('Enter your Option :')
+            if verdict == 'd' :  shutil.move(img,"Rejects/")
+            elif verdict == 'z' : shutil.move(img,"Bias/")
+            elif verdict == 'fv' : shutil.move(img,"Vflat/")
+            elif verdict == 'fb' : shutil.move(img,"Bflat/")
+            elif verdict == 'fr' : shutil.move(img,"Rflat/")
+            elif verdict == 'fi' : shutil.move(img,"Iflat/")
+            elif verdict == 'fu' : shutil.move(img,"Uflat/")
+            elif verdict == 'fh' : shutil.move(img,"Haflat/")
+            elif verdict == 'v' : shutil.move(img,"imageV/")
+            elif verdict == 'b' : shutil.move(img,"imageB/")
+            elif verdict == 'r' : shutil.move(img,"imageR/")
+            elif verdict == 'i' : shutil.move(img,"imageI/")
+            elif verdict == 'u' : shutil.move(img,"imageU/")
+            elif verdict == 'h' : shutil.move(img,"imageHa/")
+            else : print(img+" : By default Moved to Rejects")
+        print("Moving all the other images still in the night directory to Rejects.")
+        os.system("find . -iname \*.fits -type f -maxdepth 1 -exec mv {} Rejects/ \;")
+    print("Classificatioon of images are all over..")
+    iraf.cd(MotherDIR)
+
+def OverscanTrimming_subrout():
+    """ Does Overscan subtraction and Trimming of photometry images (identified by size >7Mb) And it will delete raw images """
+    iraf.noao(_doprint=0)     #Loading packages noao digiohot apphot daophot
+    iraf.imred(_doprint=0)
+    iraf.bias(_doprint=0)
+
+    iraf.colbias.unlearn()   #Setting everything to default
+    iraf.colbias.setParam('bias',COL_BIAS)
+    iraf.colbias.setParam('trim',COL_TRIM)
+
+    try :
+        directories=open(MotherDIR+'/directories','r')
+    except IOError :
+        #Creating a text file containg the directories to visit if it doesn't already exist
+        os.system('find . -type d -maxdepth 1 -mindepth 1 | sort > directories ')
+        directories=open(MotherDIR+'/directories','r')
+    for direc in directories.readlines():
+        direc=direc.rstrip()
+        iraf.cd(MotherDIR+'/'+direc)        
+        os.system("find . -maxdepth 1 -size +7M -name \*.fits | sort > rawimgs")
+        iraf.colbias(input='@rawimgs',output='t//@rawimgs',interactive='no')
+        os.system("xargs -a rawimgs rm ")  #deleting Raw images
+        os.system("sed -i -n 's/^/t/p' rawimgs")  # prefixing "t" to list
+    print(" Overscan subtraction and Trimming of all photometry images are over...")
+    iraf.cd(MotherDIR)
+
 def Backup_subrout():
     """ Copies all the files in present directory to the ../BACKUPDIR """
     os.system('mkdir  ../'+BACKUPDIR)
@@ -560,6 +699,11 @@ for con in configfile.readlines():
     if len(con.split()) >= 2 :
         if con.split()[0] == "VERBOSE=" :
             VER=con.split()[1]
+        elif con.split()[0] == "COL_BIAS=" :
+            COL_BIAS=con.split()[1]
+        elif con.split()[0] == "COL_TRIM=" :
+            COL_TRIM=con.split()[1]
+       
         elif con.split()[0] == "THRESHOLD=" :
             threshold=con.split()[1]
         elif con.split()[0] == "EPADU=" :
@@ -582,6 +726,11 @@ for con in configfile.readlines():
             FILTERHDR=con.split()[1]
         elif con.split()[0] == "UT=" :
             UTHDR=con.split()[1]
+        elif con.split()[0] == "OBJECT=" :
+            OBJECTHDR=con.split()[1]
+        elif con.split()[0] == "COMMENT=" :
+            COMMENTHDR=con.split()[1]
+
         elif con.split()[0] == "OUTPUT=" :
             OUTPUTfile=con.split()[1]
         elif con.split()[0] == "BACKUP=" :
@@ -594,28 +743,41 @@ print("Very Very Important: Backup your files first. Don't proceed without backu
 print(" ---------------- The Photometry Script --------------- \n")
 print("Enter the Serial numbers (space seperated if more than one task in succession) \n")
 print("0  Backup files in current directory to ../"+BACKUPDIR+"\n")
-print("1  Make the list of images, Images4Photo.in to do Photometry \n")
-print("2  Select Stars and Sky region of the field on first image \n")
-print("3  Remove Cosmic Rays on all the images in Images4Photo.in. IMP:It will OVERWRITE original images.\n")
-print("4  Create Sextracter config file & coordinate output of first image in this directory \n")
-print("5  Do Photometry \n")
+print("1  Run colbias for Overscan subtraction and Trimming of Imaging data (>7Mb) & Delete raw imgs \n")
+print("2  Manually classify/reject the images by displaying one by one \n")
+print("3  Bias subtraction \n")
+print("4  Flat Correction \n")
+print("5  Make the list of images, Images4Photo.in to do Photometry \n")
+print("6  Select Stars and Sky region of the field on first image \n")
+print("7  Remove Cosmic Rays on all the images in Images4Photo.in. IMP:It will OVERWRITE original images.\n")
+print("8  Create Sextracter config file & coordinate output of first image in this directory \n")
+print("9  Do Photometry \n")
 print("--------------------------------------------------------------- \n")
 todo=raw_input('Enter the list : ')
 todo=todo.split()
-if ("2" in todo) or ("3" in todo) or ("4" in todo) or ("5" in todo) :
+if ("1" in todo) or ("2" in todo) or ("3" in todo) or ("4" in todo) or ("6" in todo) or ("7" in todo) or ("8" in todo) or ("9" in todo) :
     from pyraf import iraf
 for task in todo :
     if task == "0" :
         Backup_subrout()
     elif task == "1" :
-        Createlist_subrout()
+        OverscanTrimming_subrout()
     elif task == "2" :
-        Star_sky_subrout()
+        Classify_Manually_subrout()
     elif task == "3" :
-        Cosmicrays_subrout()
+        BiasSubtract_subrout()
     elif task == "4" :
+        FlatCorrection_subrout()
+
+    elif task == "5" :
+        Createlist_subrout()
+    elif task == "6" :
+        Star_sky_subrout()
+    elif task == "7" :
+        Cosmicrays_subrout()
+    elif task == "8" :
         Sextractor_subrout()
-    elif task == "5" : 
+    elif task == "9" : 
         Photometry()
 print("All tasks over....Enjoy!!!_________indiajoe@gmail.com")
             
