@@ -3,7 +3,7 @@
 # This will convolve each image with a series of gaussin with sigma 0.5,1,1.5,2,2.5,3 and do photometry.
 # IMP:  Keep ds9 open and Images4Photo.in (text file containg name of images) ready
 # This script will do same photometry of all the images in text file "Images4Photo.in" and it's convolved versions
-# You can use the AlignCombineImagesV2.py to do the aligning job
+# You can use the AlignCombineImages.py to do the aligning job
 # After that you can do photometry of all images together.
 # Keep the following scripts also in the same directory before executing this python
 # ./Creating_Log_File.sh
@@ -706,7 +706,11 @@ def Backup_subrout():
 #-------------------------------------------------------------------------------
 #-----Main Program Begins here........
 #def main():
-configfile=open('Photometry.conf','r')
+try : 
+    configfile=open('Photometry.conf','r')
+except IOError :
+    print ("Error: Copy the Photometry.conf into this directory contianing folders of each night data, before running the script.")
+    exit(1)
 for con in configfile.readlines():
     con=con.rstrip()
     if len(con.split()) >= 2 :
