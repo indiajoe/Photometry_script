@@ -56,8 +56,11 @@ def Photometry():
         traceback.print_exc(file=sys.stdout)
         print('-'*60)
         exit
-
-
+    
+    # Setting flag by checking wheter the size of qphotinput.txt is Zero or not.
+    if os.stat(MotherDIR+"/qphotinput.txt")[6]!=0 : QPHOT_todo='Y'
+    else : QPHOT_todo='N'
+        
     imgNo=0
     for imgline in imgfile.readlines() :
         imgline=imgline.rstrip()
@@ -114,14 +117,18 @@ def Photometry():
                 exit
         
         iraf.geomap(input=img+"xymatch.out", database=img+"rtran.db", xmin=1, xmax=yxdim[1], ymin=1, ymax=yxdim[0], interactive=0)
+        
         iraf.geoxytran(input=MotherDIR+"/GoodStars.coo", output=img+"GoodStarsT.coo",database=img+"rtran.db",transforms=img+"xymatch.out")
         iraf.geoxytran(input=MotherDIR+"/Source.coo", output=img+"SourceT.coo",database=img+"rtran.db",transforms=img+"xymatch.out")
         iraf.geoxytran(input=MotherDIR+"/BlankSky.coo", output=img+"BlankSky.coo",database=img+"rtran.db",transforms=img+"xymatch.out")
-        iraf.geoxytran(input=MotherDIR+"/qphotinput.txt", output=img+"qphotinput.txt",database=img+"rtran.db",transforms=img+"xymatch.out")
+        if QPHOT_todo=='Y' :
+            iraf.geoxytran(input=MotherDIR+"/qphotinput.txt", output=img+"qphotinput.txt",database=img+"rtran.db",transforms=img+"xymatch.out")
 
 
-        # Sanity check: To remove any new coordinates calculated lying outside image in *.coo 
-        for coofile in ['GoodStarsT.coo','SourceT.coo','BlankSky.coo','qphotinput.txt'] :
+        # Sanity check: To remove any new coordinates calculated lying outside image in *.coo        
+        coofileLIST=['GoodStarsT.coo','SourceT.coo','BlankSky.coo']
+        if QPHOT_todo=='Y' : coofileLIST.append('qphotinput.txt') 
+        for coofile in coofileLIST :
             fooIN=open(img+coofile,'r')
             fooOUT=open(img+coofile+'TEMP','w')
             for star in fooIN.readlines():
@@ -167,10 +174,11 @@ def Photometry():
         #Creating all the gauss convolved images
         OriginalIMG=img
         convIMGS=[img]
-        for si in [0.5,1.0,1.5,2.0,2.5,3.0] :
-            iraf.gauss(input=img,output=img+'_'+str(si)+'.fits',sigma=si)
-            convIMGS.append(img+'_'+str(si)+'.fits')       #List of all convolved images on which we have to do photometry
-        # Now the loop of  doing the photometry for all the convolved images
+        if CONVOLVEIMG != 'NO' :  # If the CONVOLVEIMG variable is not set to NO
+            for si in eval(CONVOLVEIMG) :
+                iraf.gauss(input=img,output=img+'_'+str(si)+'.fits',sigma=si)
+                convIMGS.append(img+'_'+str(si)+'.fits')       #List of all convolved images on which we have to do photometry
+        # Now the loop of  doing the photometry for all the convolved) images
         for img in convIMGS :
             imx=iraf.imexam(input=img,frame=1,use_display=0,defkey='a',imagecur=OriginalIMG+'GoodStars.coo',Stdout=1)
             print imx           #DEBUGGING-------------------------------------------------------**
@@ -247,76 +255,88 @@ def Photometry():
                 shutil.copy(OriginalIMG+'.coo.1',img+'.coo.1')
             #Going forward to do phot
             iraf.phot(image=img,coords="default",output="default",verify=VER)
-            #Creating the imcommands file by finding Star IDs
-            os.system(MotherDIR+'/Finding_StarID_Curser_File.sh ' + img +' '+OriginalIMG+'GoodStars.coo' )
-            print ("Doing psf, Non-interactively.. Using Coords of good star")
-            iraf.psf(image=img, pstfile="", photfile="default", psfimage="default", opstfile="default", groupfil="default", icommands='icommands.in', verify=VER)
-        #    print ("Doing psf, Interactively.. Use the a a ... f w q  sequence..")
-        #    iraf.psf(image=img, pstfile="", photfile="default", psfimage="default", opstfile="default", groupfil="default")
+            if DOPSF == 'YES' :  # IF PSF photometry has to be done...
+                #Creating the imcommands file by finding Star IDs
+                os.system(MotherDIR+'/Finding_StarID_Curser_File.sh ' + img +' '+OriginalIMG+'GoodStars.coo' )
+                print ("Doing psf, Non-interactively.. Using Coords of good star")
+                iraf.psf(image=img, pstfile="", photfile="default", psfimage="default", opstfile="default", groupfil="default", icommands='icommands.in', verify=VER)
+            #    print ("Doing psf, Interactively.. Use the a a ... f w q  sequence..")
+            #    iraf.psf(image=img, pstfile="", photfile="default", psfimage="default", opstfile="default", groupfil="default")
 
-            iraf.allstar(image=img, photfile="default", psfimage="default", allstarf="default", rejfile="default", subimage="default" ,verify=VER )
-            print ("Psf photometry over")
-            print ("--------------------------------------")
+                iraf.allstar(image=img, photfile="default", psfimage="default", allstarf="default", rejfile="default", subimage="default" ,verify=VER )
+                print ("Psf photometry over")
+                print ("--------------------------------------")
 
-# ONLY for McNeil. Interpolating the nebula at v1647 in subtracted image and doing the phot
-            print("Doing Rbf interpolation of the nebula at the location of Source for "+DIRtogo+" "+img)
-            foo=open(OriginalIMG+'Source.coo','r')       #Reading in Coordinates of nebula infected Source
-            Xprim,Yprim=foo.readlines()[0].split()
-            foo.close()
-            Xprim=eval(Xprim)
-            Yprim=eval(Yprim)
-            Xprimi=int(Xprim)      #Integer coordinates
-            Yprimi=int(Yprim)
-            hdulist_sub=pyfits.open(img+'.sub.1.fits')     #psf subtracted image from allstar
-            nebula_sub=hdulist_sub[0].data[Yprimi-25:Yprimi+25,Xprimi-25:Xprimi+25] # 51x51 
-            MaskedNebula=mask_circle(nebula_sub,25,25,fwhm)  #Mask of radius fwhm at source
-            X,Y,Z=create1dvector_XYZ(MaskedNebula)
+#%// ONLY for McNeil. Interpolating the nebula at v1647 in subtracted image and doing the phot
+#%//            print("Doing Rbf interpolation of the nebula at the location of Source for "+DIRtogo+" "+img)
+#%//            foo=open(OriginalIMG+'Source.coo','r')       #Reading in Coordinates of nebula infected Source
+#%//            Xprim,Yprim=foo.readlines()[0].split()
+#%//            foo.close()
+#%//            Xprim=eval(Xprim)
+#%//            Yprim=eval(Yprim)
+#%//            Xprimi=int(Xprim)      #Integer coordinates
+#%//            Yprimi=int(Yprim)
+#%//            hdulist_sub=pyfits.open(img+'.sub.1.fits')     #psf subtracted image from allstar
+#%//            nebula_sub=hdulist_sub[0].data[Yprimi-25:Yprimi+25,Xprimi-25:Xprimi+25] # 51x51 
+#%//            MaskedNebula=mask_circle(nebula_sub,25,25,fwhm)  #Mask of radius fwhm at source
+#%//            X,Y,Z=create1dvector_XYZ(MaskedNebula)
             #Doing the 2D Radial Basis Funtion linear interpolation using scipy.interpolate.Rbf
-            rbfi = interp.Rbf(X,Y, Z, smooth=2,epsilon=2,function='linear') 
-            XI, YI = np.meshgrid(range(nebula_sub.shape[1]), range(nebula_sub.shape[0]))
-            ZI = rbfi(YI, XI)
-            hdulist_sub[0].data[Yprimi-25:Yprimi+25,Xprimi-25:Xprimi+25]=ZI
-            hdulist_sub.writeto(img+'_Intp.sub.fits')  #clean Nebula in subtracted image
-            hdulist_sub.close()
-            hdulist=pyfits.open(img)
-            hdulist[0].data[Yprimi-25:Yprimi+25,Xprimi-25:Xprimi+25]=ZI
-            hdulist.writeto(img+'_Intp.fits')  #Source removed version of original image
-            hdulist.close()
-            iraf.imarith(operand1=img, op='-', operand2=img+'_Intp.sub.fits', result=img+'.New.fits')
+#%//            rbfi = interp.Rbf(X,Y, Z, smooth=2,epsilon=2,function='linear') 
+#%//            XI, YI = np.meshgrid(range(nebula_sub.shape[1]), range(nebula_sub.shape[0]))
+#%//            ZI = rbfi(YI, XI)
+#%//            hdulist_sub[0].data[Yprimi-25:Yprimi+25,Xprimi-25:Xprimi+25]=ZI
+#%//            hdulist_sub.writeto(img+'_Intp.sub.fits')  #clean Nebula in subtracted image
+#%//            hdulist_sub.close()
+#%//            hdulist=pyfits.open(img)
+#%//            hdulist[0].data[Yprimi-25:Yprimi+25,Xprimi-25:Xprimi+25]=ZI
+#%//            hdulist.writeto(img+'_Intp.fits')  #Source removed version of original image
+#%//            hdulist.close()
+#%//            iraf.imarith(operand1=img, op='-', operand2=img+'_Intp.sub.fits', result=img+'.New.fits')
 
 
             #Doing the phot again on stars in the new image created by subtracting interpolation
+#%//            iraf.datapar.setParam('datamin',-5*max(sigma,TrueSigma))
+#%//            iraf.phot(image=img+'.New.fits',coords=OriginalIMG+'Source.coo',output="default",verify=VER)
+#%//            iraf.phot(image=img+'.New.fits',coords=OriginalIMG+'GoodStars.coo',output="default",verify=VER)
+#%//            SecondPhotresults=iraf.txdump(textfiles=img+".New.fits.mag.1",fields="XCENTER,YCENTER,MAG",expr="yes",Stdout=1)
+#%//            SecondPhotresults.extend(iraf.txdump(textfiles=img+".New.fits.mag.2",fields="XCENTER,YCENTER,MAG",expr="yes",Stdout=1))
+
+            #Doing the phot again on Source and Good stars...
             iraf.datapar.setParam('datamin',-5*max(sigma,TrueSigma))
-            iraf.phot(image=img+'.New.fits',coords=OriginalIMG+'Source.coo',output="default",verify=VER)
-            iraf.phot(image=img+'.New.fits',coords=OriginalIMG+'GoodStars.coo',output="default",verify=VER)
-            SecondPhotresults=iraf.txdump(textfiles=img+".New.fits.mag.1",fields="XCENTER,YCENTER,MAG",expr="yes",Stdout=1)
-            SecondPhotresults.extend(iraf.txdump(textfiles=img+".New.fits.mag.2",fields="XCENTER,YCENTER,MAG",expr="yes",Stdout=1))
+            iraf.phot(image=img,coords=OriginalIMG+'Source.coo',output="default",verify=VER)
+            iraf.phot(image=img,coords=OriginalIMG+'GoodStars.coo',output="default",verify=VER)
+            SecondPhotresults=iraf.txdump(textfiles=img+".mag.2",fields="XCENTER,YCENTER,MAG",expr="yes",Stdout=1)
+            SecondPhotresults.extend(iraf.txdump(textfiles=img+".mag.3",fields="XCENTER,YCENTER,MAG",expr="yes",Stdout=1))
+
 
 
             iraf.hedit(img, "itime", intime, add=1, ver=0)
-            iraf.hedit(img+'_Intp.fits', "itime", intime, add=1, ver=0)
-            iraf.hedit(img+"_Intp.sub.fits", "itime", intime, add=1, ver=0)
+            
+#%//            iraf.hedit(img+'_Intp.fits', "itime", intime, add=1, ver=0)
+#%//            iraf.hedit(img+"_Intp.sub.fits", "itime", intime, add=1, ver=0)
 
 
 #            iraf.display(img+".sub.1" , 2)
-            print (" Now proceeding to do qphot of Nebula from the psf subtracted image")
+#%//            print (" Now proceeding to do qphot of Nebula from the psf subtracted image")
+#%//            qphotImage=img+"_Intp.fits"
             #Qphot of the source subtracted interpolated nebula
-            iraf.qphot(image=img+"_Intp.fits" , coords=OriginalIMG+"Source.coo", cbox=5, annulus=271, dannulus=12, aperture=271, exposur="itime", epadu=EPADU ,interactive=0 )
+#%//            iraf.qphot(image=qphotImage , coords=OriginalIMG+"Source.coo", cbox=5, annulus=271, dannulus=12, aperture=271, exposur="itime", epadu=EPADU ,interactive=0 )
             #Qphot of the Nebula +sources
-            iraf.qphot(image=img, coords=OriginalIMG+"Source.coo", cbox=5, annulus=271, dannulus=12, aperture=271, exposur="itime", epadu=EPADU , interactive=0 )
+#%//            iraf.qphot(image=img, coords=OriginalIMG+"Source.coo", cbox=5, annulus=271, dannulus=12, aperture=271, exposur="itime", epadu=EPADU , interactive=0 )
 
 
             #Doing qphot at all the points in qphotinput.txt with the corresponding parameters.
-            foo=open(OriginalIMG+"qphotinput.txt",'r')
-            for qphotobj in foo.readlines():
-                qphotobj=qphotobj.rstrip()
-                obj=qphotobj.split()
-                foo2=open('qphotSource.Tcoo','w')
-                foo2.write(obj[0]+'  '+obj[1])
-                foo2.close()
-                iraf.qphot(image=img+"_Intp.fits" , coords='qphotSource.Tcoo', cbox=5, annulus=obj[3], dannulus=obj[4], aperture=obj[2], exposur="itime", epadu=EPADU ,interactive=0 )
+            if QPHOT_todo=='Y' :  #If there exist some qphot sources
+                foo=open(OriginalIMG+"qphotinput.txt",'r')
+                for qphotobj in foo.readlines():
+                    qphotobj=qphotobj.rstrip()
+                    obj=qphotobj.split()
+                    foo2=open('qphotSource.Tcoo','w')
+                    foo2.write(obj[0]+'  '+obj[1])
+                    foo2.close()
+                    iraf.qphot(image=img , coords='qphotSource.Tcoo', cbox=5, annulus=obj[3], dannulus=obj[4], aperture=obj[2], exposur="itime", epadu=EPADU ,interactive=0 )
                 
-            foo.close()
+                foo.close()
             os.system(MotherDIR+'/Creating_Log_File.sh '+img+' '+OriginalIMG+'GoodStars.coo'+' '+OriginalIMG+'Source.coo'+' '+MotherDIR+'/'+OUTPUTfile ) 
             # Writing the second phot results we txdumped X Y Mag into the list before closing the line
             foo=open(MotherDIR+'/'+OUTPUTfile,'a')  
@@ -347,35 +367,35 @@ def is_number(s):   # A funtion to check wheter string s is a number or not.
 
 
 # Below two subrouting are only for interpolation of McNeil Nebula part..
-def mask_circle(Matrix,a,b,r):
-    """ Returns the Matrix with circular mask at x,y of radius r ...
-    Usage  :
-          MaskedMatrix = myfuns.mask_circle(Matrix,x,y,r)
-          """
-    y,x=np.ogrid[-a:Matrix.shape[0]-a, -b:Matrix.shape[1]-b]
-    mask = x*x + y*y <= r*r
-    mask_array = np.zeros(Matrix.shape)
-    mask_array[mask] = 1 
-    return np.ma.masked_array(Matrix, mask=mask_array)
-
-def create1dvector_XYZ(Matrix):
-    """ Returns the X, Y and Z 1d vectors contining X,Y Coordinates and values Z
-    It doesnot include the masked pixels in matrix..
-    Usage :
-         X,Y,Z=myfuns.create1dvector_XYZ(Matrix)
-         """
-    X=[]
-    Y=[]
-    Z=[]
-    for i in range(Matrix.shape[0]):
-        for j in range(Matrix.shape[1]):
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                if not math.isnan(float(Matrix[i,j])) :
-                    X.append(i)
-                    Y.append(j)
-                    Z.append(Matrix[i,j])
-    return np.array(X),np.array(Y),np.array(Z)
+#%//def mask_circle(Matrix,a,b,r):
+#%//    """ Returns the Matrix with circular mask at x,y of radius r ...
+#%//    Usage  :
+#%//          MaskedMatrix = myfuns.mask_circle(Matrix,x,y,r)
+#%//          """
+#%//    y,x=np.ogrid[-a:Matrix.shape[0]-a, -b:Matrix.shape[1]-b]
+#%//    mask = x*x + y*y <= r*r
+#%//    mask_array = np.zeros(Matrix.shape)
+#%//    mask_array[mask] = 1 
+#%//    return np.ma.masked_array(Matrix, mask=mask_array)
+#%//
+#%//def create1dvector_XYZ(Matrix):
+#%//    """ Returns the X, Y and Z 1d vectors contining X,Y Coordinates and values Z
+#%//    It doesnot include the masked pixels in matrix..
+#%//    Usage :
+#%//         X,Y,Z=myfuns.create1dvector_XYZ(Matrix)
+#%//         """
+#%//    X=[]
+#%//    Y=[]
+#%//    Z=[]
+#%//    for i in range(Matrix.shape[0]):
+#%//        for j in range(Matrix.shape[1]):
+#%//            with warnings.catch_warnings():
+#%//                warnings.simplefilter("ignore")
+#%//                if not math.isnan(float(Matrix[i,j])) :
+#%//                    X.append(i)
+#%//                    Y.append(j)
+#%//                    Z.append(Matrix[i,j])
+#%//    return np.array(X),np.array(Y),np.array(Z)
 
 #----------------------------------------------------
 
@@ -752,6 +772,12 @@ for con in configfile.readlines():
             OUTPUTfile=con.split()[1]
         elif con.split()[0] == "BACKUP=" :
             BACKUPDIR=con.split()[1]
+
+        elif con.split()[0] == "CONVOLVEIMG=" :
+            CONVOLVEIMG=con.split()[1]
+        elif con.split()[0] == "DOPSF=" :
+            DOPSF=con.split()[1]
+
 configfile.close()
 MotherDIR=os.getcwd()
 #    OUTPUTfilePATH=MotherDIR+'/'+OUTPUTfile
