@@ -43,6 +43,7 @@ for iline in Photfile.readlines():
         DeltaOUT.write(' '.join(iline) +' \n')       #Deltafile
         #Calculation of Julian Date--------------
         DATE=iline[0][2:]
+        if '-' in DATE : DATE=DATE.replace('-','')
         JD19900101=2447893
         if len(DATE) == 8 :
             diff = datetime.date(int(DATE[0:4]), int(DATE[4:6]), int(DATE[6:8])) - datetime.date(1990, 1, 1)

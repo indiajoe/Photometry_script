@@ -92,6 +92,9 @@ for iline in Photfile.readlines():
             print('No good Std star; Hence skipping this image: '+iline[0])
             continue
         #Updating the time with JD
+        if ':' in iline[4] :  # Time is in Hr:Min:Sec format, we should convert to total seconds
+            HrMinSec=[float(digi) for digi in iline[4].split(':')]
+            iline[4]=HrMinSec[0]*60*60+HrMinSec[1]*60+HrMinSec[2]
         iline[4]=str(round(JD+(float(iline[4])/86400.0),4))
         
         delta=np.average(DeltaArray)
