@@ -41,8 +41,8 @@ for night in dirs.readlines() :
 #            os.system('../../Display_img_list.sh  &')    # Uses kdialog to display the text file
             os.system('zenity --text-info --title "Images in '+night+'/'+imgdir+'" --filename=imgs.txt --width 600 --height 250 &')
 
-            print ('What do you want to do? Enter a = Align ; c = Combine ; i = Inspect ; e = Exit and go to Next filter directory')
-            choice=raw_input('Enter your Choice (a,c,i or e) :')
+            print ('What do you want to do? Enter a = Align ; c = Combine ; s = Weighted average of Exptime ; i = Inspect ; e = Exit and go to Next filter directory')
+            choice=raw_input('Enter your Choice (a,c,s,i or e) :')
             if ( choice == "e" ) : break   # breaking to move to next filter image directory
             elif (choice == "i") :
                 while 1 :
@@ -51,14 +51,36 @@ for night in dirs.readlines() :
                     iraf.display(images[imgEX],1)
                     iraf.imexam()
             elif (choice == "c" ) :  # Simply combining 
-                inpVAR=""
-                while 1 :
-                    imgCOM=input('Enter the Sl.No# of next Image to combine [Enter a large number not in image list to exit] : ')
-                    if imgCOM >= len(images) : break
-                    inpVAR=inpVAR+','+images[imgCOM]
-                inpVAR=inpVAR[1:]
+                imgINP=map(int, raw_input('Enter the Sl.No#s of all Images to combine [ Eg: 1,2,3 ] : ').split(','))
+                i=len(imgINP)
+                if i < 2 : break    # minimum 2 images to combine are not there..
+                for j in imgINP : #Sanity check
+                    if j >= len(images) : 
+                        print('Wrong serial number '+str(j)+' given.. exiting the combine task..')
+                        break
+                inpVAR=','.join([images[j] for j in imgINP])
                 name=raw_input('Enter the name for combined image without .fits extension : ')
                 iraf.imcombine(input=inpVAR, output=name+'.fits',combine="average")
+
+            elif (choice == "s" ) :  # Summing and finally dividing by total EXPTIME 
+                imgINP=map(int, raw_input('Enter the Sl.No#s of all Images to average by weighted sum of EXPTIME [ Eg: 1,2,3 ] : ').split(','))
+                i=len(imgINP)
+                if i < 2 : break    # minimum 2 images to combine are not there..
+                for j in imgINP :
+                    if j >= len(images) :  #Sanity check
+                        print('Wrong serial number '+str(j)+' given.. exiting the combine task..')
+                        break
+                    hdulist=pyfits.open(images[j])
+                    Exptime=hdulist[0].header.get('EXPTIME')
+                    Observatory=hdulist[0].header.get('OBSERVAT')
+                    hdulist.close()
+                    if Observatory == 'IGO' : iraf.hedit(images[j],'IntSec',Exptime/1000.0,add=1, ver=0)
+                    else : iraf.hedit(images[j],'IntSec',Exptime,add=1, ver=0)
+                    
+                inpVAR=','.join([images[j] for j in imgINP])
+                name=raw_input('Enter the name for combined image without .fits extension : ')
+                iraf.imcombine(input=inpVAR, output=name+'.fits',combine="sum",scale="exp",zero="mode",weight="exp",expname="IntSec")
+                
             elif ( choice == "a" ) :    # Moving forward to do alignment
                 inp=input('Enter the Sl.No# of Reference Image :')
                 Refimage=images[inp]
