@@ -55,7 +55,7 @@ def Photometry():
         print('-'*60)
         traceback.print_exc(file=sys.stdout)
         print('-'*60)
-        exit
+        sys.exit(1)
     
     # Setting flag by checking wheter the size of qphotinput.txt is Zero or not.
     if os.stat(MotherDIR+"/qphotinput.txt")[6]!=0 : QPHOT_todo='Y'
@@ -114,7 +114,7 @@ def Photometry():
             print("Number of stars Matched= "+str(num_lines))
             if Nmatch < 5 : 
                 print("Failed to find the coordinates for "+img)
-                exit
+                sys.exit(1)
         
         iraf.geomap(input=img+"xymatch.out", database=img+"rtran.db", xmin=1, xmax=yxdim[1], ymin=1, ymax=yxdim[0], interactive=0)
         
@@ -302,7 +302,7 @@ def Photometry():
 #%//            SecondPhotresults.extend(iraf.txdump(textfiles=img+".New.fits.mag.2",fields="XCENTER,YCENTER,MAG",expr="yes",Stdout=1))
 
             #Doing the phot again on Source and Good stars...
-            iraf.datapar.setParam('datamin',-5*max(sigma,TrueSigma))
+            iraf.datapar.setParam('datamin',mean-5*max(sigma,TrueSigma))
             iraf.phot(image=img,coords=OriginalIMG+'Source.coo',output="default",verify=VER)
             iraf.phot(image=img,coords=OriginalIMG+'GoodStars.coo',output="default",verify=VER)
             SecondPhotresults=iraf.txdump(textfiles=img+".mag.2",fields="XCENTER,YCENTER,MAG",expr="yes",Stdout=1)
@@ -413,7 +413,7 @@ def Star_sky_subrout(img=None) :
             print('-'*60)
             traceback.print_exc(file=sys.stdout)
             print('-'*60)
-            exit
+            sys.exit(1)
 
         imgline=imgfile.readlines()[0]
         imgline=imgline.rstrip()
@@ -490,7 +490,7 @@ def Sextractor_subrout(img=None,N=30):
             print('-'*60)
             traceback.print_exc(file=sys.stdout)
             print('-'*60)
-            exit
+            sys.exit(1)
 
         imgline=imgfile.readlines()[0]
         imgline=imgline.rstrip()
@@ -526,7 +526,7 @@ def Cosmicrays_subrout(fileinp=None,fluxratio=6):
             print('-'*60)
             traceback.print_exc(file=sys.stdout)
             print('-'*60)
-            exit
+            sys.exit(1)
     # Now doing cosmicray removal for all the images
     for img in imglist :
         img=img.rstrip()
@@ -730,7 +730,7 @@ try :
     configfile=open('Photometry.conf','r')
 except IOError :
     print ("Error: Copy the Photometry.conf into this directory contianing folders of each night data, before running the script.")
-    exit(1)
+    sys.exit(1)
 for con in configfile.readlines():
     con=con.rstrip()
     if len(con.split()) >= 2 :
