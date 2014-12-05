@@ -114,7 +114,26 @@ def Photometry():
             print("Number of stars Matched= "+str(num_lines))
             if Nmatch < 5 : 
                 print("Failed to find the coordinates for "+img)
-                sys.exit(1)
+                print("We need to find the transformation interactively")
+                Inpfirstimg=raw_input("Enter the full path to first image using which coords was generated with sextractor : ").strip(' ')
+                FirstImageName=Inpfirstimg
+                if os.path.isfile(FirstImageName): 
+                    print("Running the xyxy match interactively... Select three same points from both images by pressing a")
+                    print("IMPORTANT: First select 3 stars in Frame 1 of ds9. Second image to select is in Frame 2")
+                    iraf.display(img,2)
+                    iraf.display(FirstImageName,1)
+                    if os.path.isfile(img+"xymatch.out") :os.remove(img+"xymatch.out")
+                    iraf.xyxymatch.unlearn()
+                    iraf.xyxymatch(input="Bright30.coo",reference=MotherDIR+"/FirstImageTop30.coo",output=img+"xymatch.out", toler=5, matching="tolerance",nmatch=10,interactive="yes")
+                    os.system("awk '{if ($1 >0){print $0}}' "+img+"xymatch.out > matchedstars.txt") #Removing headers
+                    num_lines = sum(1 for line in open("matchedstars.txt"))  #Counting number of lines in the xymatch output. it should be more than 15 (size of header)
+                    print("Number of stars Matched= "+str(num_lines))
+                    break
+                else:
+                    print("ERROR: Cannot find the file :"+FirstImageName)
+                    print("Enter the correct full path to the file again after this attempt.")
+                    sys.exit(1)
+
         
         iraf.geomap(input=img+"xymatch.out", database=img+"rtran.db", xmin=1, xmax=yxdim[1], ymin=1, ymax=yxdim[0], interactive=0)
         
